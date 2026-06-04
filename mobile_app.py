@@ -20,7 +20,7 @@ def get_db_connection():
         ssl_verify_identity=False
     )
 
-# Extract mobile metrics matching timeframe + employee selection
+# Extract mobile metrics matching timeframe + employee selection + debt fields
 def fetch_mobile_metrics(filter_mode, employee_filter):
     today = datetime.now().strftime("%Y-%m-%d")
     
@@ -40,7 +40,8 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         sql_condition += " AND sold_by = %s"
         params.append(employee_filter)
 
-    total_revenue = 0
+    cash_revenue = 0
+    total_credit = 0
     total_count = 0
     recent_sales = []
 
@@ -48,21 +49,27 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # 1. Fetch Summary Totals
-        cur.execute(f"SELECT SUM(price), COUNT(*) FROM sales {sql_condition}", tuple(params))
-        res = cur.fetchone()
-        total_revenue = res[0] or 0
-        total_count = res[1] or 0
+        # 1. Fetch Cash Revenue (PAID status items only)
+        cur.execute(f"SELECT SUM(price) FROM sales {sql_condition} AND payment_status = 'PAID'", tuple(params))
+        cash_revenue = cur.fetchone()[0] or 0
         
-        # 2. Fetch Last 5 Transactions for Mobile Monitoring
-        cur.execute(f"SELECT item, price, sold_by, sale_time FROM sales {sql_condition} ORDER BY id DESC LIMIT 5", tuple(params))
+        # 2. Fetch Outstanding Credit Debts (CREDIT status items only)
+        cur.execute(f"SELECT SUM(price) FROM sales {sql_condition} AND payment_status = 'CREDIT'", tuple(params))
+        total_credit = cur.fetchone()[0] or 0
+        
+        # 3. Fetch Combined Transaction Counts
+        cur.execute(f"SELECT COUNT(*) FROM sales {sql_condition}", tuple(params))
+        total_count = cur.fetchone()[0] or 0
+        
+        # 4. Fetch Last 10 Transactions including Customer names & Payment Status
+        cur.execute(f"SELECT item, price, sold_by, sale_time, payment_status, customer_name FROM sales {sql_condition} ORDER BY id DESC LIMIT 10", tuple(params))
         recent_sales = cur.fetchall()
 
         conn.close()
     except Exception as e:
         st.error(f"Database error: {e}")
         
-    return total_revenue, total_count, recent_sales
+    return cash_revenue, total_credit, total_count, recent_sales
 
 # --- SIMPLE SECURE MOBILE LOGIN ---
 if 'authenticated' not in st.session_state:
@@ -84,7 +91,7 @@ if not st.session_state['authenticated']:
 else:
     # --- MOBILE DASHBOARD INTERFACE ---
     st.title("📊 Sammy Worx Mobile")
-    st.caption("Live Shop Performance Monitor")
+    st.caption("Live Shop Credit & Sales Performance Monitor")
 
     # Mobile Dropdown Filter for Staff Selection
     employee_choice = st.selectbox("Filter by Employee:", ["ALL EMPLOYEES"] + STAFF_NAMES)
@@ -93,32 +100,64 @@ else:
     time_tab = st.radio("Select Timeframe:", ["Today", "This Week", "This Month"], horizontal=True)
 
     # Fetch Data Based on Mobile Toggles
-    revenue, order_count, recent_items = fetch_mobile_metrics(time_tab, employee_choice)
+    cash_collected, total_owed, order_count, recent_items = fetch_mobile_metrics(time_tab, employee_choice)
 
     st.markdown("---")
 
     # Clean Touch-friendly Big Metric Cards
     col1, col2 = st.columns(2)
     with col1:
-        st.metric(label="Total Revenue", value=f"UGX {int(revenue):,}")
+        st.metric(label="Cash Collected 💰", value=f"UGX {int(cash_collected):,}")
     with col2:
-        st.metric(label="Orders Closed", value=f"{order_count} Sales")
+        st.metric(label="Total Owed Debt ⚠️", value=f"UGX {int(total_owed):,}")
+        
+    st.metric(label="Total Transactions Logged", value=f"{order_count} Entries")
 
     st.markdown("---")
-    st.subheader("📝 Recent Transactions Log")
+    
+    # Quick filter for transaction types on mobile
+    view_filter = st.selectbox("Transaction Log Filter:", ["Show All Records", "Unpaid Credit Only", "Paid Cash Only"])
+    
+    st.subheader("📝 Activity & Debt Feed")
 
     # Render a clean feed layout optimized for vertical phone viewing
     if not recent_items:
-        st.info("No sales found matching these filters.")
+        st.info("No records found matching these filters.")
     else:
+        displayed_any = False
         for row in recent_items:
-            with st.container():
+            item_name, price, sold_by, sale_time, status, customer = row
+            
+            # Apply the log viewing filter toggles
+            if view_filter == "Unpaid Credit Only" and status != "CREDIT":
+                continue
+            if view_filter == "Paid Cash Only" and status != "PAID":
+                continue
+                
+            displayed_any = True
+            
+            # Color indicator and design text depending on payment status
+            if status == "CREDIT":
                 st.markdown(
                     f"""
-                    **🛍️ {row[0]}** * Value: `UGX {int(row[1]):,}` | By: **{str(row[2]).upper()}** | Time: *{row[3]}*
+                    > 🔴 **CREDIT UNPAID**
+                    > **🛍️ Item:** {item_name}
+                    > **👤 Customer Debt Issued To:** `{customer.upper()}`
+                    > **💰 Value:** `UGX {int(price):,}` | **By:** {str(sold_by).upper()} at {sale_time}
                     """
                 )
-                st.markdown("---")
+            else:
+                st.markdown(
+                    f"""
+                    🟢 **PAID CASH**
+                    **🛍️ Item:** {item_name} | **Client:** {customer}
+                    `UGX {int(price):,}` | **By:** {str(sold_by).upper()} at {sale_time}
+                    """
+                )
+            st.markdown("---")
+            
+        if not displayed_any:
+            st.info("No matching records inside this timeframe for the selected view option.")
                 
     if st.button("Log Out", type="secondary"):
         st.session_state['authenticated'] = False
