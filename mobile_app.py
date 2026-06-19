@@ -20,6 +20,29 @@ def get_db_connection():
         ssl_verify_identity=False
     )
 
+# DATABASE INITIALIZATION: Create safe_outflows table if it does not exist
+def initialize_database():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS safe_outflows (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                reason VARCHAR(255) NOT NULL,
+                amount DOUBLE NOT NULL,
+                date_logged VARCHAR(50) NOT NULL,
+                time_logged VARCHAR(50) NOT NULL,
+                logged_by VARCHAR(50) DEFAULT 'N/A'
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        st.error(f"Failed to initialize database tables: {e}")
+
+# Run database setup check
+initialize_database()
+
 # Extract mobile metrics matching timeframe + employee selection + debt fields
 def fetch_mobile_metrics(filter_mode, employee_filter):
     today = datetime.now().strftime("%Y-%m-%d")
@@ -58,26 +81,35 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         cur = conn.cursor()
         
         # 1. Fetch Cash Revenue (PAID status items only)
-        cur.execute(f"SELECT SUM(price) FROM sales {sql_condition} AND payment_status = 'PAID'", tuple(params))
-        cash_revenue = cur.fetchone()[0] or 0
+        try:
+            cur.execute(f"SELECT SUM(price) FROM sales {sql_condition} AND payment_status = 'PAID'", tuple(params))
+            cash_revenue = cur.fetchone()[0] or 0
+        except Exception:
+            cash_revenue = 0
         
         # 2. Fetch Outstanding Credit Debts (CREDIT status items only)
-        cur.execute(f"SELECT SUM(price) FROM sales {sql_condition} AND payment_status = 'CREDIT'", tuple(params))
-        total_credit = cur.fetchone()[0] or 0
+        try:
+            cur.execute(f"SELECT SUM(price) FROM sales {sql_condition} AND payment_status = 'CREDIT'", tuple(params))
+            total_credit = cur.fetchone()[0] or 0
+        except Exception:
+            total_credit = 0
         
         # 3. Fetch Combined Transaction Counts
         cur.execute(f"SELECT COUNT(*) FROM sales {sql_condition}", tuple(params))
         total_count = cur.fetchone()[0] or 0
         
         # 4. Fetch Last 10 Transactions including Customer names & Payment Status
-        cur.execute(f"SELECT item, price, sold_by, sale_time, payment_status, customer_name FROM sales {sql_condition} ORDER BY id DESC LIMIT 10", tuple(params))
-        recent_sales = cur.fetchall()
+        try:
+            cur.execute(f"SELECT item, price, sold_by, sale_time, payment_status, customer_name FROM sales {sql_condition} ORDER BY id DESC LIMIT 10", tuple(params))
+            recent_sales = cur.fetchall()
+        except Exception:
+            recent_sales = []
 
-        # 5. NEW: Fetch Total Safe Cash Outflows
+        # 5. Fetch Total Safe Cash Outflows
         cur.execute(f"SELECT SUM(amount) FROM safe_outflows {outflow_condition}", tuple(outflow_params))
         total_outflows = cur.fetchone()[0] or 0
 
-        # 6. NEW: Fetch Last 10 Safe Cash Outflows details
+        # 6. Fetch Last 10 Safe Cash Outflows details
         cur.execute(f"SELECT reason, amount, logged_by, time_logged FROM safe_outflows {outflow_condition} ORDER BY id DESC LIMIT 10", tuple(outflow_params))
         recent_outflows = cur.fetchall()
 
@@ -156,6 +188,7 @@ else:
                     
                 displayed_any = True
                 
+                # Check for payment status fields safely
                 if status == "CREDIT":
                     st.markdown(
                         f"""
@@ -166,10 +199,11 @@ else:
                         """
                     )
                 else:
+                    client_name = customer if customer else "Walk-in"
                     st.markdown(
                         f"""
                         🟢 **PAID CASH**
-                        **🛍️ Item:** {item_name} | **Client:** {customer}
+                        **🛍️ Item:** {item_name} | **Client:** {client_name}
                         `UGX {int(price):,}` | **By:** {str(sold_by).upper()} at {sale_time}
                         """
                     )
