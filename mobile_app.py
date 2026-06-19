@@ -45,23 +45,27 @@ initialize_database()
 
 # Extract mobile metrics matching timeframe + employee selection + debt fields
 def fetch_mobile_metrics(filter_mode, employee_filter):
-    today = datetime.now().strftime("%Y-%m-%d")
+    # Standardize date format to match YYYY-MM-DD precisely
+    today_dt = datetime.now()
+    today = today_dt.strftime("%Y-%m-%d")
     
     if filter_mode == "Today":
         sql_condition = "WHERE sale_date = %s"
+        outflow_condition = "WHERE date_logged = %s"
         params = [today]
+        outflow_params = [today]
     elif filter_mode == "This Week":
-        week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        week_ago = (today_dt - timedelta(days=7)).strftime("%Y-%m-%d")
         sql_condition = "WHERE sale_date >= %s"
+        outflow_condition = "WHERE date_logged >= %s"
         params = [week_ago]
+        outflow_params = [week_ago]
     else:
-        month_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        month_ago = (today_dt - timedelta(days=30)).strftime("%Y-%m-%d")
         sql_condition = "WHERE sale_date >= %s"
+        outflow_condition = "WHERE date_logged >= %s"
         params = [month_ago]
-
-    # Create matching conditions for the safe_outflows table columns
-    outflow_condition = sql_condition.replace("sale_date", "date_logged")
-    outflow_params = list(params)
+        outflow_params = [month_ago]
 
     if employee_filter != "ALL EMPLOYEES":
         sql_condition += " AND sold_by = %s"
@@ -105,7 +109,7 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         except Exception:
             recent_sales = []
 
-        # 5. Fetch Total Safe Cash Outflows
+        # 5. Fetch Total Safe Cash Outflows with exact date constraints
         cur.execute(f"SELECT SUM(amount) FROM safe_outflows {outflow_condition}", tuple(outflow_params))
         total_outflows = cur.fetchone()[0] or 0
 
@@ -188,7 +192,6 @@ else:
                     
                 displayed_any = True
                 
-                # Check for payment status fields safely
                 if status == "CREDIT":
                     st.markdown(
                         f"""
