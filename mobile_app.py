@@ -36,7 +36,7 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         sql_condition = "WHERE sale_date >= %s"
         params = [month_ago]
 
-    # Add a copy of the base condition for safe cash outflows
+    # Create matching conditions for the safe_outflows table columns
     outflow_condition = sql_condition.replace("sale_date", "date_logged")
     outflow_params = list(params)
 
@@ -73,11 +73,11 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         cur.execute(f"SELECT item, price, sold_by, sale_time, payment_status, customer_name FROM sales {sql_condition} ORDER BY id DESC LIMIT 10", tuple(params))
         recent_sales = cur.fetchall()
 
-        # 5. Fetch Total Safe Cash Outflows
+        # 5. NEW: Fetch Total Safe Cash Outflows
         cur.execute(f"SELECT SUM(amount) FROM safe_outflows {outflow_condition}", tuple(outflow_params))
         total_outflows = cur.fetchone()[0] or 0
 
-        # 6. Fetch Last 10 Safe Cash Outflows for details feed
+        # 6. NEW: Fetch Last 10 Safe Cash Outflows details
         cur.execute(f"SELECT reason, amount, logged_by, time_logged FROM safe_outflows {outflow_condition} ORDER BY id DESC LIMIT 10", tuple(outflow_params))
         recent_outflows = cur.fetchall()
 
@@ -139,12 +139,9 @@ else:
     feed_tab = st.tabs(["📝 Sales & Debt Feed", "💸 Safe Drawer Outflows"])
 
     with feed_tab[0]:
-        # Quick filter for transaction types on mobile
         view_filter = st.selectbox("Transaction Log Filter:", ["Show All Records", "Unpaid Credit Only", "Paid Cash Only"])
-        
         st.subheader("Activity & Debt Entries")
 
-        # Render a clean feed layout optimized for vertical phone viewing
         if not recent_items:
             st.info("No records found matching these filters.")
         else:
@@ -152,7 +149,6 @@ else:
             for row in recent_items:
                 item_name, price, sold_by, sale_time, status, customer = row
                 
-                # Apply the log viewing filter toggles
                 if view_filter == "Unpaid Credit Only" and status != "CREDIT":
                     continue
                 if view_filter == "Paid Cash Only" and status != "PAID":
@@ -160,7 +156,6 @@ else:
                     
                 displayed_any = True
                 
-                # Color indicator and design text depending on payment status
                 if status == "CREDIT":
                     st.markdown(
                         f"""
