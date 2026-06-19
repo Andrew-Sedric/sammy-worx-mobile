@@ -36,14 +36,22 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         sql_condition = "WHERE sale_date >= %s"
         params = [month_ago]
 
+    # Add a copy of the base condition for safe cash outflows
+    outflow_condition = sql_condition.replace("sale_date", "date_logged")
+    outflow_params = list(params)
+
     if employee_filter != "ALL EMPLOYEES":
         sql_condition += " AND sold_by = %s"
         params.append(employee_filter)
+        outflow_condition += " AND logged_by = %s"
+        outflow_params.append(employee_filter)
 
     cash_revenue = 0
     total_credit = 0
     total_count = 0
     recent_sales = []
+    total_outflows = 0
+    recent_outflows = []
 
     try:
         conn = get_db_connection()
@@ -65,11 +73,19 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         cur.execute(f"SELECT item, price, sold_by, sale_time, payment_status, customer_name FROM sales {sql_condition} ORDER BY id DESC LIMIT 10", tuple(params))
         recent_sales = cur.fetchall()
 
+        # 5. Fetch Total Safe Cash Outflows
+        cur.execute(f"SELECT SUM(amount) FROM safe_outflows {outflow_condition}", tuple(outflow_params))
+        total_outflows = cur.fetchone()[0] or 0
+
+        # 6. Fetch Last 10 Safe Cash Outflows for details feed
+        cur.execute(f"SELECT reason, amount, logged_by, time_logged FROM safe_outflows {outflow_condition} ORDER BY id DESC LIMIT 10", tuple(outflow_params))
+        recent_outflows = cur.fetchall()
+
         conn.close()
     except Exception as e:
         st.error(f"Database error: {e}")
         
-    return cash_revenue, total_credit, total_count, recent_sales
+    return cash_revenue, total_credit, total_count, recent_sales, total_outflows, recent_outflows
 
 # --- SIMPLE SECURE MOBILE LOGIN ---
 if 'authenticated' not in st.session_state:
@@ -91,7 +107,7 @@ if not st.session_state['authenticated']:
 else:
     # --- MOBILE DASHBOARD INTERFACE ---
     st.title("📊 Sammy Worx Mobile")
-    st.caption("Live Shop Credit & Sales Performance Monitor")
+    st.caption("Live Shop Credit, Outflows & Sales Performance Monitor")
 
     # Mobile Dropdown Filter for Staff Selection
     employee_choice = st.selectbox("Filter by Employee:", ["ALL EMPLOYEES"] + STAFF_NAMES)
@@ -100,7 +116,7 @@ else:
     time_tab = st.radio("Select Timeframe:", ["Today", "This Week", "This Month"], horizontal=True)
 
     # Fetch Data Based on Mobile Toggles
-    cash_collected, total_owed, order_count, recent_items = fetch_mobile_metrics(time_tab, employee_choice)
+    cash_collected, total_owed, order_count, recent_items, safe_outflows, recent_expenses = fetch_mobile_metrics(time_tab, employee_choice)
 
     st.markdown("---")
 
@@ -111,53 +127,79 @@ else:
     with col2:
         st.metric(label="Total Owed Debt ⚠️", value=f"UGX {int(total_owed):,}")
         
-    st.metric(label="Total Transactions Logged", value=f"{order_count} Entries")
+    col3, col4 = st.columns(2)
+    with col3:
+        st.metric(label="Safe Cash Outflows 💸", value=f"UGX {int(safe_outflows):,}")
+    with col4:
+        st.metric(label="Transactions Logged", value=f"{order_count} Entries")
 
     st.markdown("---")
     
-    # Quick filter for transaction types on mobile
-    view_filter = st.selectbox("Transaction Log Filter:", ["Show All Records", "Unpaid Credit Only", "Paid Cash Only"])
-    
-    st.subheader("📝 Activity & Debt Feed")
+    # Navigation Tabs for the Activity Feeds
+    feed_tab = st.tabs(["📝 Sales & Debt Feed", "💸 Safe Drawer Outflows"])
 
-    # Render a clean feed layout optimized for vertical phone viewing
-    if not recent_items:
-        st.info("No records found matching these filters.")
-    else:
-        displayed_any = False
-        for row in recent_items:
-            item_name, price, sold_by, sale_time, status, customer = row
-            
-            # Apply the log viewing filter toggles
-            if view_filter == "Unpaid Credit Only" and status != "CREDIT":
-                continue
-            if view_filter == "Paid Cash Only" and status != "PAID":
-                continue
+    with feed_tab[0]:
+        # Quick filter for transaction types on mobile
+        view_filter = st.selectbox("Transaction Log Filter:", ["Show All Records", "Unpaid Credit Only", "Paid Cash Only"])
+        
+        st.subheader("Activity & Debt Entries")
+
+        # Render a clean feed layout optimized for vertical phone viewing
+        if not recent_items:
+            st.info("No records found matching these filters.")
+        else:
+            displayed_any = False
+            for row in recent_items:
+                item_name, price, sold_by, sale_time, status, customer = row
                 
-            displayed_any = True
-            
-            # Color indicator and design text depending on payment status
-            if status == "CREDIT":
+                # Apply the log viewing filter toggles
+                if view_filter == "Unpaid Credit Only" and status != "CREDIT":
+                    continue
+                if view_filter == "Paid Cash Only" and status != "PAID":
+                    continue
+                    
+                displayed_any = True
+                
+                # Color indicator and design text depending on payment status
+                if status == "CREDIT":
+                    st.markdown(
+                        f"""
+                        > 🔴 **CREDIT UNPAID**
+                        > **🛍️ Item:** {item_name}
+                        > **👤 Customer Debt Issued To:** `{customer.upper()}`
+                        > **💰 Value:** `UGX {int(price):,}` | **By:** {str(sold_by).upper()} at {sale_time}
+                        """
+                    )
+                else:
+                    st.markdown(
+                        f"""
+                        🟢 **PAID CASH**
+                        **🛍️ Item:** {item_name} | **Client:** {customer}
+                        `UGX {int(price):,}` | **By:** {str(sold_by).upper()} at {sale_time}
+                        """
+                    )
+                st.markdown("---")
+                
+            if not displayed_any:
+                st.info("No matching records inside this timeframe for the selected view option.")
+
+    with feed_tab[1]:
+        st.subheader("Safe Outflow History")
+        
+        if not recent_expenses:
+            st.info("No safe drawer cash outflows recorded inside this timeframe.")
+        else:
+            for expense in recent_expenses:
+                reason, amount, logged_by, time_logged = expense
                 st.markdown(
                     f"""
-                    > 🔴 **CREDIT UNPAID**
-                    > **🛍️ Item:** {item_name}
-                    > **👤 Customer Debt Issued To:** `{customer.upper()}`
-                    > **💰 Value:** `UGX {int(price):,}` | **By:** {str(sold_by).upper()} at {sale_time}
+                    > 💸 **SAFE CASH TAKEN**
+                    > **📌 Reason/Use:** {reason}
+                    > **💰 Amount:** `UGX {int(amount):,}`
+                    > **👤 Authorized By:** {str(logged_by).upper()} at {time_logged}
                     """
                 )
-            else:
-                st.markdown(
-                    f"""
-                    🟢 **PAID CASH**
-                    **🛍️ Item:** {item_name} | **Client:** {customer}
-                    `UGX {int(price):,}` | **By:** {str(sold_by).upper()} at {sale_time}
-                    """
-                )
-            st.markdown("---")
-            
-        if not displayed_any:
-            st.info("No matching records inside this timeframe for the selected view option.")
+                st.markdown("---")
                 
     if st.button("Log Out", type="secondary"):
         st.session_state['authenticated'] = False
