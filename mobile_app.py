@@ -45,7 +45,6 @@ initialize_database()
 
 # Extract mobile metrics matching timeframe + employee selection + debt fields
 def fetch_mobile_metrics(filter_mode, employee_filter):
-    # Standardize date format to match YYYY-MM-DD precisely
     today_dt = datetime.now()
     today = today_dt.strftime("%Y-%m-%d")
     
@@ -67,11 +66,10 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         params = [month_ago]
         outflow_params = [month_ago]
 
+    # Keep sales filter strict
     if employee_filter != "ALL EMPLOYEES":
         sql_condition += " AND sold_by = %s"
         params.append(employee_filter)
-        outflow_condition += " AND logged_by = %s"
-        outflow_params.append(employee_filter)
 
     cash_revenue = 0
     total_credit = 0
@@ -109,7 +107,7 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         except Exception:
             recent_sales = []
 
-        # 5. Fetch Total Safe Cash Outflows with exact date constraints
+        # 5. Fetch Total Safe Cash Outflows (Removed staff filter to show data instantly)
         cur.execute(f"SELECT SUM(amount) FROM safe_outflows {outflow_condition}", tuple(outflow_params))
         total_outflows = cur.fetchone()[0] or 0
 
