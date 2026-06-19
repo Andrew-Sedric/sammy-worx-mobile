@@ -1,6 +1,6 @@
 import streamlit as st
 import pymysql
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Configure mobile page layout
 st.set_page_config(page_title="Sammy Worx Admin", page_icon="📊", layout="centered")
@@ -45,7 +45,9 @@ initialize_database()
 
 # Extract mobile metrics matching timeframe + employee selection + debt fields
 def fetch_mobile_metrics(filter_mode, employee_filter):
-    today_dt = datetime.now()
+    # FORCE UGANDA TIMEZONE (UTC+3) to match shop desktop logging perfectly
+    uganda_tz = timezone(timedelta(hours=3))
+    today_dt = datetime.now(uganda_tz)
     today = today_dt.strftime("%Y-%m-%d")
     
     if filter_mode == "Today":
@@ -66,7 +68,7 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         params = [month_ago]
         outflow_params = [month_ago]
 
-    # Keep sales filter strict
+    # Apply staff filtering strictly to sales performance
     if employee_filter != "ALL EMPLOYEES":
         sql_condition += " AND sold_by = %s"
         params.append(employee_filter)
@@ -107,7 +109,7 @@ def fetch_mobile_metrics(filter_mode, employee_filter):
         except Exception:
             recent_sales = []
 
-        # 5. Fetch Total Safe Cash Outflows (Removed staff filter to show data instantly)
+        # 5. Fetch Total Safe Cash Outflows (Universal view for admin tracking)
         cur.execute(f"SELECT SUM(amount) FROM safe_outflows {outflow_condition}", tuple(outflow_params))
         total_outflows = cur.fetchone()[0] or 0
 
