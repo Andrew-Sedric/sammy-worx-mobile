@@ -2,7 +2,7 @@ import streamlit as st
 import pymysql
 from datetime import datetime, timedelta, timezone
 
-# Configure mobile page layout
+# Configure page layout
 st.set_page_config(page_title="Sammy Worx Admin", page_icon="📊", layout="centered")
 
 # List of team members matching the desktop application exactly
@@ -42,7 +42,7 @@ def initialize_database():
 
 initialize_database()
 
-# Fetch all sales for a single targeted day (unlimited rows for printing)
+# Fetch absolutely ALL sales for a specific date (No limits, pulls everything)
 def fetch_all_sales_for_date(target_date):
     try:
         conn = get_db_connection()
@@ -145,11 +145,11 @@ if not st.session_state['authenticated']:
             st.error("Invalid Admin Credentials")
 else:
     # --- DASHBOARD INTERFACE ---
-    st.title("📊 Sammy Worx Mobile")
-    st.caption("Live Shop Credit, Outflows & Sales Performance Monitor")
+    st.title("📊 Sammy Worx Management Panel")
+    st.caption("Live Shop Credit, Outflows & Universal Print Station")
 
-    employee_choice = st.selectbox("Filter by Employee:", ["ALL EMPLOYEES"] + STAFF_NAMES)
-    time_tab = st.radio("Select Timeframe:", ["Today", "This Week", "This Month"], horizontal=True)
+    employee_choice = st.selectbox("Filter Metrics by Employee:", ["ALL EMPLOYEES"] + STAFF_NAMES)
+    time_tab = st.radio("Select Performance Timeframe:", ["Today", "This Week", "This Month"], horizontal=True)
 
     cash_collected, total_owed, order_count, recent_items, safe_outflows, recent_expenses = fetch_mobile_metrics(time_tab, employee_choice)
 
@@ -169,33 +169,44 @@ else:
 
     st.markdown("---")
     
-    # --- PRINT FEATURE SECTION ---
-    st.subheader("🖨️ Print Daily Statements")
-    ug_tz = timezone(timedelta(hours=3))
-    selected_print_date = st.date_input("Select Date to Print:", datetime.now(ug_tz))
+    # --- GLOBAL PRINT UTILITY STATION ---
+    st.subheader("🖨️ Universal Print Station")
+    st.write("Search any specific date below to pull up and print all sales records.")
     
-    if st.button("🖨️ Prepare Printable Report", use_container_width=True):
+    ug_tz = timezone(timedelta(hours=3))
+    selected_print_date = st.date_input("Select Target Log Date to Print:", datetime.now(ug_tz))
+    
+    if st.button("🔍 Search & Generate Printable Statement", use_container_width=True):
         formatted_date = selected_print_date.strftime("%Y-%m-%d")
         print_data = fetch_all_sales_for_date(formatted_date)
         
         if not print_data:
-            st.warning(f"No transactions found for {formatted_date} to print.")
+            st.error(f"No transaction records found in the database for {formatted_date}.")
         else:
-            # Create clear clean HTML structure for paper printing
+            st.success(f"Found {len(print_data)} transactions! Preparing print window...")
+            
+            # Formulate Clean HTML Page structure optimized for desktop printing or saving to PDF
             report_html = f"""
-            <div id="print-area" style="font-family: Arial, sans-serif; color: black; padding: 10px;">
-                <h2 style="text-align: center; margin-bottom: 5px;">SAMMY WORX PRINTS & DESIGN</h2>
-                <h4 style="text-align: center; margin-top: 0; color: #555;">DAILY SALES STATEMENT</h4>
-                <p><b>Date Covered:</b> {formatted_date}</p>
-                <hr style="border: 1px solid black;"/>
-                <table style="width:100%; border-collapse: collapse; margin-top: 15px;">
+            <div id="print-area" style="font-family: 'Segoe UI', Arial, sans-serif; color: black; padding: 20px;">
+                <div style="text-align: center; border-bottom: 2px solid black; padding-bottom: 10px;">
+                    <h1 style="margin: 0; font-size: 24px; letter-spacing: 1px;">SAMMY WORX PRINTS & DESIGN</h1>
+                    <p style="margin: 5px 0 0 0; font-size: 14px; text-transform: uppercase; color: #333;">Official Daily Sales Statement</p>
+                </div>
+                
+                <div style="margin-top: 15px; font-size: 14px;">
+                    <p><b>Statement Date:</b> {formatted_date}</p>
+                    <p><b>Generated On:</b> {datetime.now(ug_tz).strftime('%Y-%m-%d %H:%M:%S')} EAT</p>
+                </div>
+                
+                <table style="width:100%; border-collapse: collapse; margin-top: 20px; font-size: 13px;">
                     <thead>
-                        <tr style="border-bottom: 2px solid black; text-align: left;">
-                            <th style="padding: 8px;">Time</th>
-                            <th style="padding: 8px;">Item Description</th>
-                            <th style="padding: 8px;">Client</th>
-                            <th style="padding: 8px;">Status</th>
-                            <th style="padding: 8px; text-align: right;">Amount</th>
+                        <tr style="background-color: #f2f2f2; border-bottom: 2px solid black; text-align: left;">
+                            <th style="padding: 10px; border: 1px solid #ddd;">Time</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">Item Description</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">Handled By</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">Client Name</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">Status</th>
+                            <th style="padding: 10px; border: 1px solid #ddd; text-align: right;">Amount</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -205,39 +216,48 @@ else:
                 item, price, sold_by, sale_time, status, customer = row
                 client_name = customer if customer else "Walk-in"
                 grand_total += price
+                
+                status_color = "green" if status == "PAID" else "red"
+                
                 report_html += f"""
                     <tr style="border-bottom: 1px solid #ddd;">
-                        <td style="padding: 8px;">{sale_time}</td>
-                        <td style="padding: 8px;">{item} <br><small style="color:#666;">By: {sold_by}</small></td>
-                        <td style="padding: 8px;">{client_name}</td>
-                        <td style="padding: 8px;"><b>{status}</b></td>
-                        <td style="padding: 8px; text-align: right;">UGX {int(price):,}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd;">{sale_time}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd;"><b>{item}</b></td>
+                        <td style="padding: 10px; border: 1px solid #ddd;">{sold_by}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd;">{client_name}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; color: {status_color}; font-weight: bold;">{status}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-weight: bold;">UGX {int(price):,}</td>
                     </tr>
                 """
             
             report_html += f"""
                     </tbody>
                 </table>
-                <hr style="border: 1px solid black; margin-top: 20px;"/>
-                <h3 style="text-align: right;">Grand Total Sales: UGX {int(grand_total):,}</h3>
+                
+                <div style="margin-top: 30px; text-align: right; border-top: 2px solid black; padding-top: 10px;">
+                    <h2 style="margin: 0;">Grand Total Sales: UGX {int(grand_total):,}</h2>
+                </div>
+                
+                <div style="margin-top: 50px; text-align: center; font-size: 11px; color: #777; border-top: 1px dashed #ccc; padding-top: 10px;">
+                    Thank you for partnering with Sammy Worx Prints & Design. All system logs are securely preserved on TiDB Cloud.
+                </div>
             </div>
+            
             <script>
-                // Instantly call device system print window
-                var win = window.open('', '', 'height=700,width=900');
-                win.document.write('<html><head><title>Print Report</title></head><body>');
+                var win = window.open('', '', 'height=700,width=1000');
+                win.document.write('<html><head><title>Sammy Worx Daily Report - {formatted_date}</title></head><body>');
                 win.document.write(document.getElementById('print-area').innerHTML);
                 win.document.write('</body></html>');
                 win.document.close();
                 win.print();
             </script>
             """
-            # Render the printable sheet container directly to web app output
-            st.components.v1.html(report_html, height=450, scrolling=True)
+            st.components.v1.html(report_html, height=500, scrolling=True)
 
     st.markdown("---")
     
     # Navigation Tabs for the Main Activity Feeds
-    feed_tab = st.tabs(["📝 Sales & Debt Feed", "💸 Safe Drawer Outflows"])
+    feed_tab = st.tabs(["📝 Live Sales & Debt Feed", "💸 Safe Drawer Outflows"])
 
     with feed_tab[0]:
         view_filter = st.selectbox("Transaction Log Filter:", ["Show All Records", "Unpaid Credit Only", "Paid Cash Only"])
