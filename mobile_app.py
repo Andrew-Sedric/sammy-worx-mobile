@@ -42,7 +42,7 @@ def initialize_database():
 
 initialize_database()
 
-# Fetch absolutely ALL sales for a specific date (No limits, pulls everything)
+# Fetch absolutely ALL sales for a specific date
 def fetch_all_sales_for_date(target_date):
     try:
         conn = get_db_connection()
@@ -183,11 +183,41 @@ else:
         if not print_data:
             st.error(f"No transaction records found in the database for {formatted_date}.")
         else:
-            st.success(f"Found {len(print_data)} transactions! Preparing print window...")
+            st.success(f"Found {len(print_data)} transactions! Scroll down and click the 'Print Report' button below.")
             
-            # Formulate Clean HTML Page structure optimized for desktop printing or saving to PDF
+            # Formulate Clean HTML Page structure with built-in Print Action Button
             report_html = f"""
-            <div id="print-area" style="font-family: 'Segoe UI', Arial, sans-serif; color: black; padding: 20px;">
+            <style>
+                @media print {{
+                    .no-print {{
+                        display: none !important;
+                    }}
+                    #print-area {{
+                        padding: 0px !important;
+                    }}
+                }}
+                .print-btn {{
+                    background-color: #2e7d32;
+                    color: white;
+                    padding: 12px 24px;
+                    font-size: 16px;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                    margin-bottom: 20px;
+                    display: block;
+                    text-align: center;
+                }}
+                .print-btn:hover {{
+                    background-color: #1b5e20;
+                }}
+            </style>
+
+            <button class="print-btn no-print" onclick="window.print();">🖨️ CLICK HERE TO PRINT THIS REPORT</button>
+
+            <div id="print-area" style="font-family: 'Segoe UI', Arial, sans-serif; color: black; padding: 10px; background-color: white;">
                 <div style="text-align: center; border-bottom: 2px solid black; padding-bottom: 10px;">
                     <h1 style="margin: 0; font-size: 24px; letter-spacing: 1px;">SAMMY WORX PRINTS & DESIGN</h1>
                     <p style="margin: 5px 0 0 0; font-size: 14px; text-transform: uppercase; color: #333;">Official Daily Sales Statement</p>
@@ -242,17 +272,8 @@ else:
                     Thank you for partnering with Sammy Worx Prints & Design. All system logs are securely preserved on TiDB Cloud.
                 </div>
             </div>
-            
-            <script>
-                var win = window.open('', '', 'height=700,width=1000');
-                win.document.write('<html><head><title>Sammy Worx Daily Report - {formatted_date}</title></head><body>');
-                win.document.write(document.getElementById('print-area').innerHTML);
-                win.document.write('</body></html>');
-                win.document.close();
-                win.print();
-            </script>
             """
-            st.components.v1.html(report_html, height=500, scrolling=True)
+            st.components.v1.html(report_html, height=600, scrolling=True)
 
     st.markdown("---")
     
